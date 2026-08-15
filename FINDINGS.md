@@ -117,8 +117,12 @@ Note the `_meta` keys are **namespaced** — `io.modelcontextprotocol/protocolVe
 
 `HttpServerTransportOptions.Stateless` now defaults to `true`. A consequence you can show on
 screen: `tools/list` answers immediately with **no `initialize` call at all**. On 1.x that
-was a protocol error. Set `Stateless = false` to restore session behaviour — required if the
-server needs to push unsolicited requests to the client.
+was a protocol error.
+
+⚠️ **Do NOT just set `Stateless = false` to "get sessions back".** That assigns
+`SessionMode.Stateful`, which then *refuses* every 2026-07-28 client with
+`-32022 UnsupportedProtocolVersion`. See [§10](#10-stateless--false-is-a-trap--sessionmode-has-three-values)
+for the three-value `SessionMode` and the hybrid mode you almost certainly want instead.
 
 ## 5. Gotchas hit while building (worth 30 seconds each on screen)
 
