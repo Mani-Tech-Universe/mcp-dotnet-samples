@@ -212,3 +212,85 @@ negotiated protocol: 2026-07-28
   content : 34
   structured: 34
 ```
+
+---
+
+## 10. `Stateless = false` IS A TRAP — `SessionMode` has THREE values
+
+This is the most consequential thing in this document, and it is easy to get backwards.
+`HttpServerTransportOptions.Stateless` is only a **convenience proxy** over the real setting,
+`SessionMode`. From the shipped `ModelContextProtocol.AspNetCore.xml`:
+
+| `HttpServerSessionMode` | Old clients (2025-11-25 and earlier) | 2026-07-28 clients |
+|---|---|---|
+| `Stateless` *(default)* | no session | served per request |
+| `Stateful` | full session + `Mcp-Session-Id` | **refused — `-32022 UnsupportedProtocolVersion`** |
+| `StatefulForInitializeClients` | full session + `Mcp-Session-Id` | served per request |
+
+> `Stateful` — "Requests using the 2026-07-28 or later protocol revision are refused with a
+> `-32022` UnsupportedProtocolVersion error so that a dual-path client downgrades to the
+> initialize handshake… Use `StatefulForInitializeClients` to serve those clients natively
+> instead of forcing a downgrade."
+
+So the obvious "I need sampling back, I'll set `Stateless = false`" **starts rejecting every
+modern client**. For a mixed fleet the answer is `SessionMode = StatefulForInitializeClients`,
+which serves both on one endpoint and lets you migrate progressively.
+
+Reading `Stateless` returns `true` only when `SessionMode` is `Stateless`, so
+`StatefulForInitializeClients` reads as `false`. Both write the same field — last assignment
+wins.
+
+## 11. What stateless actually disables, and the replacement
+
+> "Client sampling, elicitation, and roots capabilities are disabled because the server cannot
+> make requests; **use Multi Round-Trip Requests (MRTR) instead.**"
+
+Also gone in stateless mode: `SessionId` is null, `Mcp-Session-Id` is unused, and the GET,
+DELETE and `/sse` endpoints are unavailable (405). Tools, resources and prompts are unaffected.
+
+**MRTR** is the replacement mechanism. `InputRequest` is documented as "a server-initiated
+request that the client must fulfill as part of an MRTR flow" — carrying `SamplingParams` when
+the method is sampling, `ElicitationParams` when it is elicitation. Rather than pushing down a
+session, the handler suspends and returns the request inside its own response; the client
+resolves it and answers on the next round trip. Same capability, no server-to-client channel,
+nothing that must land on the same process twice.
+
+## 12. What replaced the handshake: `server/discover` + caching
+
+Two proposals did the damage: **SEP-2567 removed `Mcp-Session-Id`** and **SEP-2575 removed the
+`initialize` handshake**, so "requests using that revision or later can only ever be served
+statelessly".
+
+`DiscoverResult` is what took their place:
+
+| Property | What it carries |
+|---|---|
+| `SupportedVersions` | protocol revisions the server accepts for per-request-metadata requests |
+| `Capabilities` | what the server can do |
+| `Instructions` | how to use it |
+| `TimeToLive` | how long the client may cache this |
+| `CacheScope` | `Public` or `Private` |
+
+`CacheScope` is documented as "analogous to the HTTP `Cache-Control: public` and
+`Cache-Control: private` directives":
+
+- **`Public`** — no user-specific data; any client, shared gateway or caching proxy may store
+  it and serve it to any user.
+- **`Private`** — user-specific; only the requesting user's client may cache it, and shared
+  caches must not serve it to a different user.
+
+It is not limited to discovery — `ListToolsResult`, `ListResourcesResult`, `ListPromptsResult`,
+`ListResourceTemplatesResult` and `ReadResourceResult` all implement `ICacheableResult`.
+
+**That is the whole design in one line: state that used to live in a session on your server now
+lives in a cache, with an explicit TTL and an explicit sharing rule.**
+
+## 13. How to check any of this yourself
+
+`probe-mcp-xml.mjs` (in the video's build repo) reads the XML documentation shipped inside the
+NuGet package — the only source guaranteed to match the assembly you are referencing:
+
+```bash
+node probe-mcp-xml.mjs SessionMode CacheScope DiscoverResult
+node probe-mcp-xml.mjs --diff     # public type lists, 1.4.0 vs 2.2.0
+```
