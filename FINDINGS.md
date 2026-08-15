@@ -60,6 +60,26 @@ older wire formats with `AIFunctionMcpServerTool.TransformOutputSchemaForLegacyW
 is a **negotiated difference, not a hard break** — an old client keeps working against a new
 server. That is the single most useful thing to tell an upgrading audience.
 
+### The control case: only NON-OBJECT results move
+
+`weather_for` returns a record, and its structured payload is **identical under both
+protocols** — an object is already an object, so SEP-2106 has nothing to unwrap:
+
+```json
+"structuredContent": {"city":"Chennai","celsius":34,"conditions":"Clear"}
+```
+
+Run side by side with `temperature_for`, that is the whole change in one screen:
+
+| Tool | Returns | 2025-06-18 | 2026-07-28 |
+|---|---|---|---|
+| `temperature_for` | `int` | `{"result":34}` | `34` |
+| `weather_for` | record | `{"city":…,"celsius":34,…}` | `{"city":…,"celsius":34,…}` |
+
+⚠️ `weather_for` originally shipped **without** `UseStructuredContent`, so it emitted no
+`structuredContent` at all and silently proved nothing. The opt-in is **per tool**. Fixed
+2026-08-15 and re-verified live.
+
 ## 3. What a 2026-07-28 request must carry (discovered by hitting errors)
 
 Under the new protocol a stateless request must supply everything a session used to hold.
@@ -149,10 +169,14 @@ Taken by diffing the public type lists in the shipped XML docs, not from the rel
 | `CacheScope` | SEP-2549 caching hints |
 | `AuthorizationResult` / `ScopeSelectorDelegate` | the reworked OAuth surface |
 
-⚠️ **A rename story I got wrong and had to correct.** I assumed 1.x used
-`McpClientFactory` + `SseClientTransport` and 2.x renamed them. The diff shows `McpClient`
-and `HttpClientTransport` **already exist in 1.4.0**. Client-side type names barely move.
-The break is on the wire, not in the API names — do not repeat the rename claim.
+⚠️ **The rename that did not happen.** The natural assumption — and what several upgrade
+posts imply — is that 1.x used `McpClientFactory` + `SseClientTransport` and 2.x renamed them
+to `McpClient` + `HttpClientTransport`. The diff of the shipped XML docs says otherwise:
+**`McpClient` and `HttpClientTransport` already exist in 1.4.0.** Client-side type names
+barely move. The break is on the wire, not in the API names.
+
+**Narration note:** deliver this as a myth-bust — "the rename everyone expects isn't there" —
+never as a first-person correction. It is a fact about the SDK, not a confession.
 
 ## 7. The one-sentence thesis for the video
 

@@ -67,9 +67,16 @@ public static class DemoTools
             _ => 25,
         };
 
-    // An object result still serialises as an object, so this one is shape-stable across
-    // the upgrade. Useful in the video as the control case.
-    [McpServerTool, Description("Return a small object, which keeps the same shape in 1.x and 2.x.")]
+    // THE CONTROL CASE. An object result is already a JSON object, so SEP-2106 has nothing to
+    // unwrap: its structuredContent is identical on 2025-06-18 and on 2026-07-28. Pairing this
+    // with TemperatureFor is what proves the change is specifically about NON-OBJECT results,
+    // not about structured content in general.
+    //
+    // ⚠️ UseStructuredContent IS REQUIRED HERE TOO. This tool originally shipped without it,
+    // which meant the "control case" emitted no structuredContent at all and so demonstrated
+    // nothing — the opt-in is per tool, and forgetting it fails silently.
+    [McpServerTool(UseStructuredContent = true),
+     Description("Return a small object, whose structured shape is identical in 1.x and 2.x.")]
     public static WeatherReport WeatherFor(
         [Description("City name.")] string city)
         => new(city, TemperatureFor(city), "Clear");
