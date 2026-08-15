@@ -1,6 +1,7 @@
 # MCP C# SDK 2.x — what changed, with runnable code
 
-Companion repo for the video **"The MCP C# SDK just went 2.0 — here's everything that broke"**.
+Companion repo for the video **"MCP C# SDK 2.0 — What Actually Changed (Stateless, SEP-2106 &
+The 4 Errors)"** on [Mani Tech Universe](https://www.youtube.com/@ManiTechUniverse).
 
 The C# SDK for the Model Context Protocol went **2.0.0 on 28 July 2026** and **2.2.0 on
 13 August 2026**. Almost every tutorial online still targets 1.x. This repo is a minimal
@@ -30,6 +31,16 @@ protocol 2025-06-18  ->  "structuredContent": {"result": 34}
 protocol 2026-07-28  ->  "structuredContent": 34
 ```
 
+And the control case — `weather_for` returns a record, so it is **identical on both**:
+
+```
+protocol 2025-06-18  ->  "structuredContent": {"city":"Chennai","celsius":34,"conditions":"Clear"}
+protocol 2026-07-28  ->  "structuredContent": {"city":"Chennai","celsius":34,"conditions":"Clear"}
+```
+
+An object is already an object, so SEP-2106 has nothing to unwrap. **Only non-object results
+change shape.** Run the two tools side by side and the whole change explains itself.
+
 ## Run it
 
 ```bash
@@ -45,8 +56,16 @@ dotnet run --project src/DemoClient -- http://localhost:5223/
 ```
 connected. server: demo-server 2.0.0
 negotiated protocol: 2026-07-28
+
+--- tools/call temperature_for(city: Chennai) ---
   content : 34
   structured: 34
+
+--- tools/call weather_for(city: Chennai) ---
+  structured: {"city":"Chennai","celsius":34,"conditions":"Clear"}
+
+scalar tool -> {"result":34} before SEP-2106, bare 34 on 2026-07-28+
+object tool -> identical on both. Only non-object results change shape.
 ```
 
 The client negotiates the new protocol and handles every header and `_meta` key for you.
@@ -79,8 +98,10 @@ curl -s -X POST http://localhost:5223/ \
 
 ## Three things the release notes do not tell you
 
-1. **Structured content is opt-in.** By default a 2.2.0 server emits no `structuredContent`
-   and no `outputSchema` at all. You need `[McpServerTool(UseStructuredContent = true)]`.
+1. **Structured content is opt-in, per tool.** By default a 2.2.0 server emits no
+   `structuredContent` and no `outputSchema` at all. You need
+   `[McpServerTool(UseStructuredContent = true)]` on **each** tool that should have it, and
+   forgetting it fails silently — no error, the tool just stops returning structured output.
 2. **The `_meta` keys are namespaced** — `io.modelcontextprotocol/protocolVersion`, not
    `protocolVersion`. A plain key is silently ignored.
 3. **`Mcp-Method` and `Mcp-Name` headers are required** on Streamable HTTP POSTs under the
